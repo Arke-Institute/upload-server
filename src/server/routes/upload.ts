@@ -199,11 +199,40 @@ async function processUploadSession(
     throw new Error('Session not found');
   }
 
-  // Create Uploader instance with session config
-  const uploader = new Uploader({
-    ...session.config,
-    dryRun,
-  });
+  // Create progress callback to update session
+  const progressCallback = (progress: any) => {
+    const percentComplete =
+      progress.totalBytes && progress.bytesUploaded
+        ? Math.round((progress.bytesUploaded / progress.totalBytes) * 100)
+        : 0;
+
+    sessionManager.updateProgress(sessionId, {
+      phase: progress.phase,
+      filesTotal: progress.filesTotal || 0,
+      filesProcessed: progress.filesProcessed || 0,
+      filesUploaded: progress.filesCompleted || 0,
+      filesFailed: progress.filesFailed || 0,
+      bytesTotal: progress.totalBytes || 0,
+      bytesProcessed: progress.bytesUploaded || 0,
+      bytesUploaded: progress.bytesUploaded || 0,
+      percentComplete,
+      currentFile: progress.currentFile,
+    });
+
+    logger.debug(`Progress update for ${sessionId}`, {
+      phase: progress.phase,
+      percent: percentComplete,
+    });
+  };
+
+  // Create Uploader instance with session config and progress callback
+  const uploader = new Uploader(
+    {
+      ...session.config,
+      dryRun,
+    },
+    progressCallback
+  );
 
   try {
     // Run the upload workflow

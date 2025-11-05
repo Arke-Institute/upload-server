@@ -16,14 +16,27 @@ import { getLogger } from '../utils/logger.js';
 import chalk from 'chalk';
 import ora from 'ora';
 
+export type ProgressCallback = (progress: {
+  phase: 'scanning' | 'preprocessing' | 'uploading' | 'finalizing';
+  filesTotal?: number;
+  filesProcessed?: number;
+  filesCompleted?: number;
+  filesFailed?: number;
+  bytesUploaded?: number;
+  totalBytes?: number;
+  currentFile?: string;
+}) => void;
+
 export class Uploader {
   private config: UploadConfig;
   private client: WorkerClient;
   private preprocessor: PreprocessorOrchestrator;
   private logger = getLogger();
+  private progressCallback?: ProgressCallback;
 
-  constructor(config: UploadConfig) {
+  constructor(config: UploadConfig, progressCallback?: ProgressCallback) {
     this.config = config;
+    this.progressCallback = progressCallback;
     this.client = new WorkerClient({
       baseUrl: config.workerUrl,
       debug: config.debug,
@@ -86,6 +99,10 @@ export class Uploader {
   private async scanFiles() {
     const spinner = ora('Scanning directory...').start();
 
+    this.progressCallback?.({
+      phase: 'scanning',
+    });
+
     try {
       const scanResult = await scanDirectory(this.config.directory, {
         rootPath: this.config.rootPath,
@@ -95,6 +112,12 @@ export class Uploader {
       spinner.succeed(
         `Found ${scanResult.totalFiles} files (${this.formatBytes(scanResult.totalSize)})`
       );
+
+      this.progressCallback?.({
+        phase: 'scanning',
+        filesTotal: scanResult.totalFiles,
+        totalBytes: scanResult.totalSize,
+      });
 
       return scanResult;
     } catch (error) {
@@ -111,12 +134,23 @@ export class Uploader {
 
     this.logger.debug('Preprocessing with config:', preprocessorConfig);
 
+    this.progressCallback?.({
+      phase: 'preprocessing',
+      filesTotal: files.length,
+    });
+
     try {
       const processedFiles = await this.preprocessor.run(
         files,
         preprocessorConfig,
         this.config.dryRun
       );
+
+      this.progressCallback?.({
+        phase: 'preprocessing',
+        filesTotal: files.length,
+        filesProcessed: processedFiles.length,
+      });
 
       return processedFiles;
     } catch (error) {
@@ -180,6 +214,12 @@ export class Uploader {
     const progress = new ProgressTracker(context.tasks.length, context.totalSize);
     progress.start();
 
+    this.progressCallback?.({
+      phase: 'uploading',
+      filesTotal: context.tasks.length,
+      totalBytes: context.totalSize,
+    });
+
     const queue = [...context.tasks];
     const inProgress: Promise<void>[] = [];
     let hasErrors = false;
@@ -191,6 +231,18 @@ export class Uploader {
 
         try {
           await this.uploadFile(context.batchId, task, progress);
+
+          // Update progress after each file
+          const stats = progress.getStats();
+          this.progressCallback?.({
+            phase: 'uploading',
+            filesTotal: context.tasks.length,
+            filesCompleted: stats.filesCompleted,
+            filesFailed: stats.filesFailed,
+            bytesUploaded: stats.bytesUploaded,
+            totalBytes: context.totalSize,
+            currentFile: task.fileName,
+          });
         } catch (error: any) {
           hasErrors = true;
           this.logger.error(`Failed to upload ${task.fileName}`, {
@@ -302,6 +354,10 @@ export class Uploader {
    */
   private async finalizeBatch(context: BatchContext): Promise<void> {
     const spinner = ora('Finalizing batch...').start();
+
+    this.progressCallback?.({
+      phase: 'finalizing',
+    });
 
     try {
       const result = await this.client.finalizeBatch(context.batchId);
