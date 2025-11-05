@@ -21,3 +21,4 @@ IMPLEMENTATION.md
 # Temporary test directories
 /tmp/
 example_dirs/
+.env
