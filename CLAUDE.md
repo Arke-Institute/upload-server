@@ -4,302 +4,239 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Arke Upload Server is a REST API server for uploading files and directories to the Arke Institute's ingest service. It provides a web-accessible upload gateway that accepts HTTP uploads, preprocesses files (TIFF→JPEG conversion), and transfers them to Cloudflare R2 using presigned URLs. The worker coordinates state but never handles file bytes directly.
+**@arke/upload-client** is a portable TypeScript SDK for uploading files to the Arke Institute's ingest service. It works across multiple JavaScript runtimes (Node.js, browsers, Deno, Cloudflare Workers) and uploads files directly to Cloudflare R2 using presigned URLs from the worker API.
 
 **Key Architecture:**
-- Express.js REST API server
-- Session-based upload management
-- Direct R2 upload via presigned URLs
-- TIFF preprocessing with Sharp
-- Shared upload library (Uploader, Scanner, WorkerClient)
+- Multi-platform SDK (Node.js + Browser)
+- Platform adapters for file handling (fs vs File API)
+- Direct R2 upload via presigned URLs (no server bandwidth)
+- Automatic multipart uploads for large files (≥5MB)
+- Fetch-based API client (universal compatibility)
+- CID computation using multiformats
 
 ## Development Commands
 
 ### Build and Run
 ```bash
-# Build TypeScript to JavaScript
+# Build both Node.js and browser versions
 npm run build
 
-# Run in development mode (with tsx, hot reload)
+# Build Node.js version only
+npm run build:node
+
+# Build browser version only
+npm run build:browser
+
+# Development mode with watch
 npm run dev
 
-# Run production build
-npm start
-
-# Type checking only (no compilation)
-npm run type-check
+# Type checking
+npm run lint
 ```
 
 ### Testing
 ```bash
-# Run tests with Vitest
+# Run all tests
 npm test
 
-# Test upload with script
-./test-upload.sh example_dirs/iiif_test_small
+# Run tests in watch mode
+npm run test:watch
 
-# Test with local worker
-export WORKER_URL=http://localhost:8787
-npm run dev
+# Test with real worker (using examples)
+npm run build
+node examples/node-basic.ts
 ```
 
-### Docker
+## Installation
+
+This SDK is installed directly from GitHub:
+
 ```bash
-# Build image
-docker build -t arke-upload-server .
+# Install latest from main branch
+npm install github:Arke-Institute/upload-client
 
-# Run container
-docker run -d -p 3000:3000 \
-  -e WORKER_URL=https://ingest.arke.institute \
-  -v /data/uploads:/tmp/arke-uploads \
-  arke-upload-server
-
-# Run with docker-compose
-docker-compose up -d
+# Install specific version
+npm install github:Arke-Institute/upload-client#v1.0.0
 ```
 
-### Deployment
-```bash
-# Deploy to EC2 (see deployment/README.md)
-cd deployment/scripts
-./01-create-ec2.sh
-./02-deploy-server.sh
-
-# Check status
-./check-status.sh
-```
+When installed from GitHub, the `prepare` script automatically builds the package.
 
 ## Architecture
 
 ### System Components
 
 ```
-Client (Browser/Script)
-    ↓ HTTP multipart upload
-Express Server
-    ↓ Temp storage
-TIFF Preprocessor (Sharp)
-    ↓ Scanning & CID computation
-Uploader Library
-    ↓ Presigned URLs
-R2 Storage ← Worker API
+┌─────────────────────────────────────────────┐
+│           ArkeUploader (Core)               │
+│  • Orchestrates upload workflow            │
+│  • Progress tracking                        │
+│  • Concurrency control                      │
+└─────────────────┬───────────────────────────┘
+                  │
+        ┌─────────┴─────────┐
+        │                   │
+┌───────▼────────┐  ┌───────▼────────┐
+│ Platform       │  │ Worker Client  │
+│ Adapters       │  │ (fetch-based)  │
+│ • Node.js (fs) │  │ • API calls    │
+│ • Browser      │  │ • Presigned    │
+│   (File API)   │  │   URLs         │
+└────────────────┘  └────────────────┘
+        │                   │
+        └─────────┬─────────┘
+                  │
+        ┌─────────▼─────────┐
+        │   Upload Engines  │
+        │ • Simple (<5MB)   │
+        │ • Multipart(≥5MB) │
+        └───────────────────┘
 ```
 
 ### Core Upload Flow
 
-**Server-side workflow** (orchestrated by `src/server/routes/upload.ts`):
+**SDK-side workflow:**
 
-1. **Initialize** - Client calls `POST /api/v1/upload/init`, server creates session
-2. **Upload** - Client sends files via `POST /api/v1/upload/:id/files`, stored in temp dir
-3. **Process** - Client triggers `POST /api/v1/upload/:id/process`
-   - Scanner scans uploaded files, computes CIDs
-   - Preprocessor converts TIFFs to JPEG
-   - Uploader uploads files to R2 via presigned URLs
-   - Finalizes batch with worker API
-4. **Monitor** - Client polls `GET /api/v1/upload/:id/status` for progress
-5. **Cleanup** - Server deletes temp files 5 minutes after completion
+1. **Platform Detection** - Detect runtime (Node.js vs Browser)
+2. **File Scanning** - Platform adapter scans files and computes CIDs
+   - Node.js: Uses `fs` to walk directory tree
+   - Browser: Processes `File[]` or `FileList`
+3. **Batch Init** - Call worker API to create batch
+4. **For each file:**
+   - Request presigned URL(s) from worker
+   - Worker generates URL (simple or multipart based on size)
+   - Upload directly to R2 using presigned URL
+   - Notify worker of completion
+5. **Finalize** - Close batch and trigger worker processing
 
 ### Key Components
 
-**Express Server** (src/server/index.ts)
-- Entry point for REST API
-- Mounts upload and health routes
-- Graceful shutdown with session cleanup
-- Error handling middleware
+**ArkeUploader** (src/uploader.ts)
+- Main SDK class exposing clean API
+- Orchestrates entire upload workflow
+- Manages concurrency (file-level and part-level)
+- Provides progress callbacks
+- Platform-agnostic (auto-detects and uses correct adapter)
 
-**SessionManager** (src/server/services/upload-session.ts:24-206)
-- In-memory session storage (TODO: Redis for multi-server)
-- 24-hour session TTL with auto-cleanup
-- Manages upload directories in `/tmp/arke-uploads/{sessionId}`
-- Tracks status, progress, errors per session
+**Platform Adapters** (src/platforms/)
+- `common.ts` - Shared utilities and types
+- `node.ts` - Node.js file scanning with fs
+- `browser.ts` - Browser File/FileList handling
+- Platform detection and conditional loading
 
-**Upload Routes** (src/server/routes/upload.ts)
-- POST `/api/v1/upload/init` - Create session
-- POST `/api/v1/upload/:id/files` - Upload files (Multer)
-- POST `/api/v1/upload/:id/process` - Trigger processing
-- GET `/api/v1/upload/:id/status` - Get progress
-- DELETE `/api/v1/upload/:id` - Cancel upload
+**Worker Client** (src/lib/worker-client-fetch.ts)
+- Fetch-based HTTP client for worker API
+- Endpoints: init, start file, complete file, finalize
+- Automatic retry with exponential backoff
+- Works in all JavaScript runtimes
 
-**Uploader** (src/lib/uploader.ts:29-293)
-- Main orchestrator coordinating upload workflow
-- Manages worker pool for parallel file uploads
-- Integrates Scanner, Preprocessor, WorkerClient
-- Handles both simple and multipart uploads based on file size
-- Progress callbacks for real-time status updates
+**Upload Engines** (src/lib/)
+- `simple-fetch.ts` - For files <5MB (single PUT)
+- `multipart-fetch.ts` - For files ≥5MB (chunked)
+- Both use native fetch API (universal)
 
-**Scanner** (src/lib/scanner.ts:34-216)
-- Recursively walks directory tree
-- Validates extensions, paths, and file sizes
-- Computes CID (Content Identifier) using multiformats library
-- Returns FileInfo[] sorted by size (smallest first)
+**Type System** (src/types/)
+- `config.ts` - SDK configuration types
+- `api.ts` - Worker API request/response types
+- `file.ts` - File metadata types
+- `processing.ts` - Processing options
+- Full TypeScript support with exports
 
-**PreprocessorOrchestrator** (src/lib/preprocessor.ts:11-150)
-- Coordinates preprocessing operations
-- Registers preprocessors (TIFF converter, etc.)
-- Runs applicable preprocessors in sequence
-- Supports dry-run mode
-
-**TiffConverter** (src/lib/preprocessors/tiff-converter.ts)
-- Converts TIFF files to JPEG using Sharp
-- Configurable quality (default: 95%)
-- Modes: convert, preserve, both, none
-- Reduces file size significantly (95% typical)
-
-**WorkerClient** (src/lib/worker-client.ts:27-209)
-- HTTP API client for communicating with ingest worker
-- Endpoints: `/api/batches/init`, `/api/batches/{id}/files/start`, `/api/batches/{id}/files/complete`, `/api/batches/{id}/finalize`
-- Automatic retry with exponential backoff for all requests
-- See API.md for complete endpoint documentation
-
-**Simple Upload** (src/lib/simple.ts:26-81)
-- For files < 5 MB
-- Single PUT request to presigned URL
-- Entire file loaded into memory
-
-**Multipart Upload** (src/lib/multipart.ts:39-228)
-- For files ≥ 5 MB
-- Splits file into 10 MB parts
-- Uploads parts concurrently (default: 3 parallel)
-- Returns PartInfo[] with ETags for R2 multipart completion
-- Uses file handles to avoid loading entire file into memory
+**Utilities** (src/utils/)
+- `hash.ts` - CID computation (multiformats)
+- `retry.ts` - Exponential backoff retry logic
+- `errors.ts` - Typed error classes
+- Platform-agnostic implementations
 
 ### Direct R2 Upload Pattern
 
-Neither the server nor worker handles file bytes. Instead:
-1. Server triggers Uploader with local directory path
-2. Uploader requests presigned URL(s) from worker
-3. Worker generates URL(s) using R2 bucket API
-4. Uploader uploads directly to R2 using presigned URL(s)
-5. Uploader notifies worker of completion
+Neither the SDK nor worker handles file bytes during upload:
 
-This pattern keeps the worker stateless and enables efficient uploads even with Cloudflare Workers' memory limits.
+1. SDK requests presigned URL from worker
+2. Worker generates URL using R2 API
+3. SDK uploads file bytes directly to R2
+4. SDK notifies worker of completion
+5. Worker tracks state and triggers processing
 
-### Session Management
+This pattern:
+- Eliminates bandwidth bottleneck
+- Works with Cloudflare Workers' memory limits
+- Scales to unlimited file sizes (via multipart)
 
-**Storage:** In-memory Map (src/server/services/upload-session.ts:25)
-- Session ID: ULID format (e.g., `01K9BEZ521NSBNCRZ0SFYXCF24`)
-- Temp directory: `/tmp/arke-uploads/{sessionId}` (or `UPLOAD_DIR` env var)
-- TTL: 24 hours with auto-cleanup timer
-- States: `initialized` → `receiving` → `ready` → `processing` → `completed`/`failed`
+### Multipart Upload Details
 
-**Lifecycle:**
-1. Created on `/init` endpoint
-2. Files accumulated via `/files` endpoint (Multer storage)
-3. Processing triggered via `/process` endpoint
-4. Temp files deleted 5 minutes after completion
-5. Session removed from memory on expiration or cleanup
+For files ≥5MB:
+- File split into 10MB chunks
+- Worker provides presigned URL for each chunk
+- SDK uploads chunks in parallel (default: 3 concurrent)
+- Each chunk returns an ETag
+- SDK sends all ETags to worker to complete multipart
+- Worker completes multipart upload with R2
 
-**Production TODO:** Replace Map with Redis for multi-server deployments
+### Platform Differences
 
-### Configuration System
+**Node.js:**
+- Scans directory with `fs.readdir` recursively
+- Reads files as Buffer with `fs.readFile`
+- Computes CID from file path
+- Supports `.arke-process.json` config files per directory
 
-**Environment Variables:**
-- `PORT` - Server port (default: 3000)
-- `WORKER_URL` - Worker API URL (default: https://ingest.arke.institute)
-- `UPLOAD_DIR` - Temp upload directory (default: /tmp/arke-uploads)
-- `NODE_ENV` - Environment (development/production)
-- `DEBUG` - Enable debug logging (true/false)
-
-**Upload Configuration:**
-Session-specific config built from init request (src/server/services/upload-session.ts:47-61):
-- `uploader` (required): Name of person uploading
-- `rootPath`: Archive path prefix (default: `/`)
-- `parentPi`: Parent persistent identifier (default: root)
-- `metadata`: Custom metadata object
-- `processing`: OCR, IIIF options
-- `preprocessor`: TIFF conversion settings
-- `parallelUploads`: File-level concurrency (default: 5)
-- `parallelParts`: Part-level concurrency (default: 3)
-
-### Error Handling
-
-Custom error types (src/utils/errors.ts):
-- `ValidationError` - Invalid input (paths, extensions, sizes)
-- `ScanError` - Directory scanning issues
-- `WorkerAPIError` - API errors from worker (includes status code)
-- `NetworkError` - Network/connection failures
-- `UploadError` - R2 upload failures
-
-All network operations use retry logic (src/utils/retry.ts) with exponential backoff (default: 3 retries).
+**Browser:**
+- Accepts `File[]` or `FileList` from `<input type="file">`
+- Reads files with `file.arrayBuffer()`
+- Computes CID from file data
+- Uses `webkitRelativePath` to preserve structure
 
 ## Important Implementation Details
 
-### File Upload with Directory Structure
-
-Multer storage (src/server/routes/upload.ts:23-50):
-- Extracts directory path from `filename` parameter in multipart form
-- Creates nested directories in temp storage
-- Preserves relative path for archive structure
-- Example: `files=@doc.pdf;filename=box_1/folder_a/doc.pdf`
-
-### Progress Tracking
-
-Two mechanisms:
-1. **Uploader progress callbacks** (src/lib/uploader.ts:18-27)
-   - Passed to Uploader constructor
-   - Reports: phase, file counts, bytes uploaded, current file
-   - Used by server to update session progress
-
-2. **Session progress object** (src/types/server.ts)
-   - Stored in session, returned by `/status` endpoint
-   - Includes: percentComplete, filesTotal, filesUploaded, currentFile
-
-### TIFF Preprocessing
-
-**Sharp library** used for conversion:
-- Input: TIFF files from temp directory
-- Output: JPEG files (quality configurable, default 95%)
-- Modes:
-  - `convert` - Replace TIFF with JPEG in file list
-  - `preserve` - Keep only TIFF
-  - `both` - Upload both TIFF and JPEG
-  - `none` - Skip TIFF processing
-
-**Benefits:**
-- 95% file size reduction typical
-- Faster OCR processing
-- Better web compatibility
-- Original quality preserved at 95% JPEG
-
 ### CID Computation
 
-Files are hashed using SHA-256 and encoded as CIDv1 with multiformats library (src/utils/hash.ts). The CID is computed during scanning and sent to the worker for content-addressable storage tracking.
+Files are hashed using SHA-256 and encoded as CIDv1 with multiformats library (src/utils/hash.ts):
+
+```typescript
+// Node.js - from file path
+const cid = await computeFileCID(filePath);
+
+// Browser - from Uint8Array
+const cid = await computeCIDFromBuffer(data);
+```
+
+The CID is sent to worker for content-addressable tracking.
 
 ### Concurrency Control
 
 Two levels of concurrency:
 1. **File-level**: `parallelUploads` (default: 5) - How many files upload simultaneously
-2. **Part-level**: `parallelParts` (default: 3) - How many parts per multipart upload
+2. **Part-level**: `parallelParts` (default: 3) - How many chunks per multipart upload
 
-Both use worker pool pattern with shared queue.
+Uses worker queue pattern with shared task queue.
 
-### Logical vs Physical Paths
+### Progress Tracking
 
-- **Local path**: Physical filesystem path (e.g., `/tmp/arke-uploads/01ABC/box_1/doc.pdf`)
-- **Logical path**: Virtual archive path (e.g., `/archives/collection/box_1/doc.pdf`)
+Progress callback receives:
+```typescript
+interface UploadProgress {
+  phase: 'scanning' | 'uploading' | 'finalizing' | 'complete';
+  filesTotal: number;
+  filesUploaded: number;
+  bytesTotal: number;
+  bytesUploaded: number;
+  currentFile?: string;
+  percentComplete: number;
+}
+```
 
-The `rootPath` option sets the logical root, and relative paths are preserved. This allows maintaining archive structure independent of local filesystem layout.
+Updated after each file completes.
 
-## API Integration
+### Error Handling
 
-### Worker API
+Custom error types (src/utils/errors.ts):
+- `ValidationError` - Invalid input (paths, sizes)
+- `ScanError` - Directory scanning issues
+- `WorkerAPIError` - API errors from worker
+- `NetworkError` - Network/connection failures
+- `UploadError` - R2 upload failures
 
-The worker API expects specific request/response formats. Key points:
-
-- **Batch ID**: ULID format (e.g., `01K8ABCDEFGHIJKLMNOPQRSTUV`)
-- **R2 Keys**: Format is `staging/{batch_id}/{logical_path}`
-- **ETags**: Must be cleaned (quotes removed) before sending to complete endpoint
-- **Part Numbers**: 1-indexed (not 0-indexed)
-
-See API.md for complete endpoint documentation and payload formats.
-
-### Server API
-
-See API.md for complete REST API documentation including:
-- Request/response formats
-- Error codes
-- Complete workflow examples
-- Client integration patterns (JavaScript, Python, Bash)
+All network operations use retry logic with exponential backoff (default: 3 retries).
 
 ## Code Style and Patterns
 
@@ -307,193 +244,148 @@ See API.md for complete REST API documentation including:
 
 - Target: ES2022
 - Module: ES2022 (native ESM)
+- Module Resolution: bundler
 - Strict mode enabled
-- All imports must use `.js` extension (ESM requirement)
-
-### Logging
-
-Use the logger from `src/utils/logger.ts` instead of `console.log`:
-```typescript
-import { getLogger } from '../utils/logger.js';
-const logger = getLogger();
-
-logger.debug('Details only shown with --debug');
-logger.info('Important operational info');
-logger.warn('Non-fatal issues');
-logger.error('Fatal errors');
-```
-
-User-facing output uses `chalk` and `ora` for colored/styled terminal output.
+- All imports use `.js` extension (ESM requirement)
+- Dual builds: Node.js (CJS+ESM) + Browser (UMD)
 
 ### Async Patterns
 
-All I/O operations are async. Use worker pools (see uploadFiles and uploadPartsWithConcurrency) for controlled concurrency rather than Promise.all() on large arrays.
+All I/O operations are async. Use worker pools for controlled concurrency rather than `Promise.all()` on large arrays.
 
 ### Error Propagation
 
-Throw custom error types from utilities and handle them at route/handler level. Return JSON error responses to clients, detailed traces only with `--debug`.
+Throw custom error types from utilities and handle them at SDK level. Provide typed errors to SDK consumers.
+
+### Platform Detection
+
+Runtime detection happens at initialization:
+```typescript
+function detectPlatform(): 'node' | 'browser' | 'unknown' {
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    return 'node';
+  }
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    return 'browser';
+  }
+  return 'unknown';
+}
+```
 
 ## Common Workflows
 
-### Adding a New Preprocessing Step
+### Adding a New Platform Adapter
 
-1. Create preprocessor class implementing `Preprocessor` interface (src/types/preprocessor.ts)
-2. Implement `shouldRun()`, `process()`, `cleanup()` methods
-3. Register in `src/lib/preprocessor.ts` or upload route handler
-4. Add configuration options to `PreprocessorConfig` type
-5. Test with dry-run mode
+1. Create adapter class implementing `PlatformScanner` interface
+2. Implement `scanFiles()` and `readFile()` methods
+3. Add to `src/platforms/index.ts` exports
+4. Update platform detection in `src/platforms/common.ts`
+5. Test with platform-specific runtime
 
-### Adding a New API Endpoint
+### Adding New Upload Options
 
-1. Add route handler in `src/server/routes/upload.ts` (or new route file)
-2. Add request/response types to `src/types/server.ts`
-3. Update session state if needed in SessionManager
-4. Add endpoint to root endpoint listing (src/server/index.ts:50-67)
-5. Document in API.md
-
-### Adding a New Session Status
-
-1. Add status to `SessionStatus` type (src/types/server.ts)
-2. Update state transitions in route handlers
-3. Update status polling logic if needed
-4. Document status in API.md
+1. Add to `UploaderConfig` or `UploadOptions` in `src/types/config.ts`
+2. Update `ArkeUploader` constructor or method signature
+3. Pass option through to relevant components
+4. Update README API reference
+5. Add tests for new option
 
 ### Debugging Upload Failures
 
-1. Check health endpoint: `curl http://localhost:3000/api/v1/health`
-2. View server logs in console or `journalctl -u arke-upload -f` (production)
-3. Check session status endpoint for errors
-4. Verify worker is accessible from server
-5. Check temp directory disk space
-6. Enable DEBUG=true for detailed logs
+1. Check progress callback for errors
+2. Enable browser DevTools network tab to see R2 requests
+3. Check worker API responses (visible in network tab)
+4. Verify presigned URLs are valid (check expiration)
+5. Test with smaller file set to isolate issue
 
 ### Testing Locally
 
 ```bash
-# Start local server
-npm run dev
+# Build SDK
+npm run build
 
-# Initialize session
-INIT=$(curl -s -X POST http://localhost:3000/api/v1/upload/init \
-  -H "Content-Type: application/json" \
-  -d '{"uploader": "Test User"}')
+# Test with Node.js example
+node examples/node-basic.ts
 
-SESSION_ID=$(echo "$INIT" | jq -r .sessionId)
-UPLOAD_URL=$(echo "$INIT" | jq -r .uploadUrl)
-
-# Upload files
-curl -X POST "$UPLOAD_URL" \
-  -F "files=@test.pdf" \
-  -F "files=@folder/doc.txt;filename=folder/doc.txt"
-
-# Process
-curl -X POST "http://localhost:3000/api/v1/upload/$SESSION_ID/process" \
-  -H "Content-Type: application/json" \
-  -d '{"dryRun": false}'
-
-# Check status
-curl "http://localhost:3000/api/v1/upload/$SESSION_ID/status" | jq .
+# Test with browser example
+# Open examples/browser.html in browser
+# Select files and upload
 ```
-
-## Dependencies
-
-**Core:**
-- `express` - Web server framework
-- `multer` - File upload handling
-- `axios` - HTTP client for API and R2 uploads
-- `multiformats` - CID computation
-- `sharp` - TIFF to JPEG conversion
-- `ulid` - Session ID generation
-
-**UI:**
-- `chalk` - Terminal colors
-- `ora` - Spinners
-- `cli-progress` - Progress bars
-
-**Utilities:**
-- `mime-types` - Content-Type detection
-- `dotenv` - Environment variable loading
-- `tsx` - Development TypeScript execution
 
 ## Repository Structure
 
 ```
-cli/
+@arke/upload-client/
 ├── src/
-│   ├── server/
-│   │   ├── index.ts                 # Express app entry point
-│   │   ├── routes/
-│   │   │   ├── health.ts            # Health check endpoint
-│   │   │   └── upload.ts            # Upload API routes
-│   │   └── services/
-│   │       └── upload-session.ts    # Session management
+│   ├── index.ts                    # Main SDK export
+│   ├── uploader.ts                 # ArkeUploader class
 │   ├── lib/
-│   │   ├── uploader.ts              # Main upload orchestrator
-│   │   ├── scanner.ts               # Directory scanning
-│   │   ├── preprocessor.ts          # Preprocessor orchestrator
-│   │   ├── preprocessors/
-│   │   │   ├── index.ts             # Preprocessor exports
-│   │   │   └── tiff-converter.ts    # TIFF→JPEG converter
-│   │   ├── worker-client.ts         # Worker API client
-│   │   ├── simple.ts                # Simple uploads (<5MB)
-│   │   ├── multipart.ts             # Multipart uploads (≥5MB)
-│   │   ├── progress.ts              # Progress tracking
-│   │   ├── config.ts                # Configuration loading
-│   │   └── validation.ts            # Input validation
+│   │   ├── worker-client-fetch.ts  # Worker API client
+│   │   ├── simple-fetch.ts         # Simple uploads
+│   │   ├── multipart-fetch.ts      # Multipart uploads
+│   │   └── validation.ts           # Input validation
+│   ├── platforms/
+│   │   ├── index.ts                # Platform exports
+│   │   ├── common.ts               # Shared utilities
+│   │   ├── node.ts                 # Node.js adapter
+│   │   └── browser.ts              # Browser adapter
 │   ├── types/
-│   │   ├── api.ts                   # Worker API types
-│   │   ├── batch.ts                 # Batch config types
-│   │   ├── file.ts                  # File metadata types
-│   │   ├── server.ts                # Server API types
-│   │   ├── preprocessor.ts          # Preprocessor types
-│   │   └── processing.ts            # Processing options
+│   │   ├── index.ts                # Type exports
+│   │   ├── config.ts               # SDK config types
+│   │   ├── api.ts                  # Worker API types
+│   │   ├── file.ts                 # File types
+│   │   ├── batch.ts                # Batch types
+│   │   └── processing.ts           # Processing types
 │   └── utils/
-│       ├── errors.ts                # Custom error types
-│       ├── logger.ts                # Logging utilities
-│       ├── retry.ts                 # Retry logic
-│       └── hash.ts                  # CID computation
-├── deployment/                      # EC2 deployment scripts
-│   ├── README.md                    # Deployment guide
-│   └── scripts/
-│       ├── 01-create-ec2.sh         # Create instance
-│       ├── 02-deploy-server.sh      # Deploy application
-│       ├── check-status.sh          # Check health
-│       └── 99-cleanup.sh            # Destroy resources
-├── example_dirs/                    # Test upload directories
-├── dist/                            # Build output (generated)
-├── API.md                           # Server API documentation
-├── Dockerfile                       # Container image
-├── docker-compose.yml               # Local Docker setup
-└── test-upload.sh                   # Upload test script
+│       ├── errors.ts               # Error classes
+│       ├── hash.ts                 # CID computation
+│       └── retry.ts                # Retry logic
+├── examples/
+│   ├── node-basic.ts               # Node.js example
+│   └── browser.html                # Browser example
+├── test/
+│   ├── uploader.test.ts            # Uploader tests
+│   ├── validation.test.ts          # Validation tests
+│   └── hash.test.ts                # Hash tests
+├── dist/                           # Build output (generated)
+│   ├── index.js                    # Node.js (CJS)
+│   ├── index.mjs                   # Node.js (ESM)
+│   ├── browser.js                  # Browser (UMD)
+│   └── types/                      # TypeScript declarations
+├── package.json                    # SDK package config
+├── tsconfig.json                   # TypeScript config
+├── vite.config.ts                  # Browser build config
+├── vitest.config.ts                # Test config
+└── README.md                       # SDK documentation
 ```
 
-## Production Deployment
+## Dependencies
 
-See `deployment/README.md` for complete deployment guide.
+**Runtime:**
+- `multiformats` - CID computation (only dependency)
 
-**Quick deploy:**
+**Dev:**
+- `typescript` - TypeScript compiler
+- `vite` - Browser bundler
+- `vitest` - Test runner
+- `@types/node` - Node.js types
+
+Zero runtime dependencies except multiformats!
+
+## GitHub Installation
+
+The SDK is distributed via GitHub (not npm yet):
+
 ```bash
-cd deployment/scripts
-./01-create-ec2.sh           # Create EC2 instance
-./02-deploy-server.sh        # Deploy application
-./check-status.sh            # Verify deployment
+npm install github:Arke-Institute/upload-client
 ```
 
-**Production setup:**
-- AWS EC2 t3.small (2 vCPU, 2 GB RAM)
-- Docker with systemd auto-restart
-- Nginx reverse proxy (port 80 → 3000)
-- 30 GB storage for temp uploads
-- Cost: ~$26/month
+The `prepare` script in package.json automatically runs `npm run build` when installed, ensuring the `dist/` directory is built.
 
-**Monitoring:**
-```bash
-# Health check
-curl http://upload.arke.institute/api/v1/health
+## Future Plans
 
-# Server logs
-ssh -i key.pem ec2-user@IP 'sudo journalctl -u arke-upload -f'
-
-# Docker logs
-sudo docker logs arke-upload -f
-```
+- Publish to npm registry as `@arke/upload-client`
+- Add Deno-specific adapter
+- Add progress estimation (ETA)
+- Add resumable uploads (checkpoint/restore)
+- Add batch validation before upload

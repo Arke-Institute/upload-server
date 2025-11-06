@@ -15,7 +15,27 @@ Portable upload client SDK for Arke Institute's ingest service. Upload files dir
 
 ## Installation
 
+### Install from GitHub
+
+The SDK is currently available directly from GitHub (not yet published to npm):
+
 ```bash
+# Install latest from main branch
+npm install github:Arke-Institute/upload-client
+
+# Or install a specific version tag
+npm install github:Arke-Institute/upload-client#v1.0.0
+
+# Or install from a specific branch
+npm install github:Arke-Institute/upload-client#sdk-restructure
+```
+
+**Note:** The package will be published to npm in the future. For now, GitHub installation ensures you get the latest stable version with automatic builds.
+
+### Future npm Installation
+
+```bash
+# Coming soon
 npm install @arke/upload-client
 ```
 
