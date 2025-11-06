@@ -24,7 +24,7 @@ set -e
 PROJECT_NAME="arke-upload-server"
 INSTANCE_TYPE="t3.small"
 AMI_NAME="al2023-ami-*"  # Amazon Linux 2023 (latest)
-VOLUME_SIZE=30
+VOLUME_SIZE=30 # 30 GB
 KEY_NAME="${1:-arke-upload-key}"
 MY_IP="${2:-$(curl -s https://checkip.amazonaws.com)/32}"
 REGION="${AWS_REGION:-us-east-1}"
@@ -59,7 +59,7 @@ echo "[Step 1/6] Finding latest Amazon Linux 2023 AMI..."
 AMI_ID=$(aws ec2 describe-images \
   --owners amazon \
   --filters "Name=name,Values=$AMI_NAME" \
-            "Name=architecture,Values=arm64" \
+            "Name=architecture,Values=x86_64" \
             "Name=state,Values=available" \
   --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
   --output text \

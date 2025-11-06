@@ -235,9 +235,11 @@ echo "Starting Server"
 echo "=================================================="
 echo ""
 
-# Create upload directory
+# Create upload directory with correct permissions for Docker container
 sudo mkdir -p /data/arke-uploads
-sudo chown ec2-user:ec2-user /data/arke-uploads
+# Docker container runs as nodejs user (UID 1001)
+sudo chown -R 1001:1001 /data/arke-uploads
+echo "✓ Upload directory created with correct permissions"
 
 # Start service
 sudo systemctl start arke-upload.service
