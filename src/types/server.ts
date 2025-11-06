@@ -11,6 +11,7 @@ import type { PreprocessorConfig } from './preprocessor.js';
  */
 export interface UploadSession {
   sessionId: string;
+  batchId?: string; // Worker batch ID, available after processing starts
   config: UploadConfig;
   status: SessionStatus;
   uploadDir: string;
@@ -103,6 +104,7 @@ export interface ProcessUploadResponse {
 
 export interface StatusResponse {
   sessionId: string;
+  batchId?: string;
   status: SessionStatus;
   phase?: ProcessingPhase;
   progress?: UploadProgress;

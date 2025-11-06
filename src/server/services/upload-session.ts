@@ -118,6 +118,14 @@ class SessionManager {
   }
 
   /**
+   * Update batch ID after worker batch is created
+   */
+  updateBatchId(sessionId: string, batchId: string): void {
+    this.updateSession(sessionId, { batchId });
+    logger.info(`Session ${sessionId} linked to batch ${batchId}`);
+  }
+
+  /**
    * Add error to session
    */
   addError(sessionId: string, error: string): void {

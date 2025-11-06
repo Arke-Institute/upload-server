@@ -49,8 +49,9 @@ export class Uploader {
 
   /**
    * Execute the full upload workflow
+   * Returns the batchId if successful, undefined if dry-run
    */
-  async upload(): Promise<void> {
+  async upload(): Promise<string | undefined> {
     try {
       // Step 1: Scan directory
       const scanResult = await this.scanFiles();
@@ -62,7 +63,7 @@ export class Uploader {
         // Calculate total size after preprocessing simulation
         const totalSize = preprocessedFiles.reduce((sum, f) => sum + f.size, 0);
         this.printDryRunSummary(preprocessedFiles.length, totalSize);
-        return;
+        return undefined;
       }
 
       // Step 3: Initialize batch
@@ -82,6 +83,8 @@ export class Uploader {
       await this.preprocessor.cleanup();
 
       console.log(chalk.green.bold('\n✓ Upload complete!'));
+
+      return batchContext.batchId;
     } catch (error: any) {
       this.logger.error('Upload failed', { error: error.message });
       console.log(chalk.red.bold('\n✗ Upload failed: ' + error.message));

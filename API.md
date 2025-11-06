@@ -75,7 +75,7 @@ Poll the status endpoint to track progress through phases: scanning → preproce
 
 **5. Completion**
 
-When status is `completed`, files have been successfully uploaded and enqueued for processing by the worker.
+When status is `completed`, files have been successfully uploaded and enqueued for processing by the worker. Use the `batchId` from the status response to poll the orchestrator API for final processing status.
 
 ---
 
@@ -278,6 +278,7 @@ Get current status and progress of an upload session.
 ```json
 {
   "sessionId": "01K9BEZ521NSBNCRZ0SFYXCF24",
+  "batchId": "01K9BEZ5PJZBQ4ZF6Y3KX2NG5Y",
   "status": "processing",
   "phase": "uploading",
   "progress": {
@@ -297,6 +298,8 @@ Get current status and progress of an upload session.
   "updatedAt": "2025-11-06T02:12:35.123Z"
 }
 ```
+
+**Note:** The `batchId` field is only present after processing starts (status is `processing` or later). This is the ID needed to poll the orchestrator for final processing status.
 
 **Status Values:**
 
@@ -503,6 +506,8 @@ while true; do
 
   if [ "$STATE" = "completed" ] || [ "$STATE" = "failed" ]; then
     echo "$STATUS" | jq .
+    BATCH_ID=$(echo "$STATUS" | jq -r .batchId)
+    echo "Batch ID for orchestrator: $BATCH_ID"
     break
   fi
 
@@ -592,6 +597,7 @@ async function uploadFiles(files, uploader) {
     console.log('Status:', status.status, status.phase);
 
     if (status.status === 'completed' || status.status === 'failed') {
+      console.log('Batch ID for orchestrator:', status.batchId);
       return status;
     }
 
@@ -662,6 +668,7 @@ def upload_directory(directory, uploader):
         print(f"Status: {status['status']} - {status.get('phase', '')}")
 
         if status['status'] in ['completed', 'failed']:
+            print(f"Batch ID for orchestrator: {status.get('batchId')}")
             return status
 
         time.sleep(2)

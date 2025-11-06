@@ -237,7 +237,12 @@ async function processUploadSession(
   try {
     // Run the upload workflow
     // This calls the existing logic: scan, preprocess, upload, finalize
-    await uploader.upload();
+    const batchId = await uploader.upload();
+
+    // Store batchId in session (if not dry-run)
+    if (batchId) {
+      sessionManager.updateBatchId(sessionId, batchId);
+    }
 
     // Mark as completed
     sessionManager.updateStatus(sessionId, 'completed');
@@ -270,6 +275,7 @@ router.get('/:sessionId/status', (req: Request, res: Response) => {
 
   res.json({
     sessionId: session.sessionId,
+    batchId: session.batchId,
     status: session.status,
     phase: session.progress?.phase,
     progress: session.progress,
