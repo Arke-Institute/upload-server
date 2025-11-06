@@ -31,8 +31,8 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "lint": "tsc --noEmit",
-    "prepare": "npm run build",
-    "prepublishOnly": "npm run build && npm test"
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test"
   },
   "repository": {
     "type": "git",
