@@ -4,19 +4,13 @@
   "description": "Portable upload client SDK for Arke Institute's ingest service",
   "type": "module",
   "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
-  "browser": "./dist/browser.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "browser": "./dist/browser.js",
-      "import": "./dist/index.mjs",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./browser": "./dist/browser.js",
-    "./node": "./dist/index.js",
-    "./package.json": "./package.json"
+    "./browser": "./dist/browser.js"
   },
   "files": [
     "dist",
