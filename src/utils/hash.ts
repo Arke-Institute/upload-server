@@ -2,19 +2,18 @@
  * Hash and CID computation utilities
  */
 
-import fs from 'fs/promises';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { sha256 } from 'multiformats/hashes/sha2';
-import { getLogger } from './logger.js';
 
 /**
- * Compute IPFS CID v1 for a file
+ * Compute IPFS CID v1 for a file (Node.js only)
  * Uses raw codec and SHA-256 hash
  * Returns base32-encoded CID string
  */
 export async function computeFileCID(filePath: string): Promise<string> {
-  const logger = getLogger();
+  // Dynamic import to avoid bundling fs in browser builds
+  const fs = await import('fs/promises');
 
   try {
     // Read file contents
@@ -27,27 +26,26 @@ export async function computeFileCID(filePath: string): Promise<string> {
     const cid = CID.create(1, raw.code, hash);
 
     // Return base32-encoded string (default for v1)
-    const cidString = cid.toString();
-
-    logger.debug(`Computed CID for ${filePath}`, {
-      cid: cidString,
-      size: fileBuffer.length,
-    });
-
-    return cidString;
+    return cid.toString();
   } catch (error: any) {
-    logger.error(`Failed to compute CID for ${filePath}`, {
-      error: error.message,
-    });
     throw new Error(`CID computation failed: ${error.message}`);
   }
 }
 
 /**
- * Compute CID for a buffer (useful for testing or in-memory data)
+ * Compute CID for a buffer (works in all environments)
  */
 export async function computeBufferCID(buffer: Buffer): Promise<string> {
   const hash = await sha256.digest(buffer);
+  const cid = CID.create(1, raw.code, hash);
+  return cid.toString();
+}
+
+/**
+ * Compute CID from Uint8Array (browser-compatible)
+ */
+export async function computeCIDFromBuffer(data: Uint8Array): Promise<string> {
+  const hash = await sha256.digest(data);
   const cid = CID.create(1, raw.code, hash);
   return cid.toString();
 }

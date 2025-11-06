@@ -3,7 +3,6 @@
  */
 
 import { ValidationError } from '../utils/errors.js';
-import type { TiffMode } from '../types/preprocessor.js';
 
 // Size limits per API spec
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB
@@ -250,21 +249,7 @@ export function normalizePath(path: string): string {
 }
 
 /**
- * Validate TIFF mode
- */
-export function validateTiffMode(mode: string): TiffMode {
-  const validModes: TiffMode[] = ['convert', 'preserve', 'both', 'none'];
-  if (!validModes.includes(mode as TiffMode)) {
-    throw new ValidationError(
-      `Invalid TIFF mode: ${mode}. Must be one of: ${validModes.join(', ')}`,
-      'tiffMode'
-    );
-  }
-  return mode as TiffMode;
-}
-
-/**
- * Validate TIFF quality
+ * Validate TIFF quality (for future preprocessor configuration)
  */
 export function validateTiffQuality(quality: number): void {
   if (isNaN(quality) || quality < 1 || quality > 100) {

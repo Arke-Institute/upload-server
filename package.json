@@ -1,61 +1,64 @@
 {
-  "name": "@arke/upload-server",
-  "version": "0.0.2",
-  "description": "Upload gateway server for Arke Institute's ingest service with REST API",
+  "name": "@arke/upload-client",
+  "version": "1.0.0",
+  "description": "Portable upload client SDK for Arke Institute's ingest service",
   "type": "module",
-  "main": "dist/server/index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "browser": "./dist/browser.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "browser": "./dist/browser.js",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./browser": "./dist/browser.js",
+    "./node": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/server/index.ts",
-    "start": "node dist/server/index.js",
+    "build": "npm run build:node && npm run build:browser",
+    "build:node": "tsc",
+    "build:browser": "vite build",
+    "dev": "tsc --watch",
     "test": "vitest",
-    "type-check": "tsc --noEmit"
+    "test:watch": "vitest --watch",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Arke-Institute/upload-server.git"
+    "url": "https://github.com/Arke-Institute/upload-client.git"
   },
   "bugs": {
-    "url": "https://github.com/Arke-Institute/upload-server/issues"
+    "url": "https://github.com/Arke-Institute/upload-client/issues"
   },
-  "homepage": "https://github.com/Arke-Institute/upload-server#readme",
+  "homepage": "https://github.com/Arke-Institute/upload-client#readme",
   "keywords": [
     "arke",
     "upload",
-    "server",
-    "api",
-    "archival",
-    "ingest"
+    "client",
+    "sdk",
+    "cloudflare",
+    "r2",
+    "archival"
   ],
   "author": "Arke Institute",
   "license": "MIT",
   "dependencies": {
-    "axios": "^1.6.0",
-    "chalk": "^5.3.0",
-    "cli-progress": "^3.12.0",
-    "commander": "^11.1.0",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "mime-types": "^2.1.35",
-    "multer": "^2.0.2",
-    "multiformats": "^13.4.1",
-    "ora": "^7.0.1",
-    "sharp": "^0.34.4",
-    "ulid": "^3.0.1"
+    "multiformats": "^13.4.1"
   },
   "devDependencies": {
-    "@types/cli-progress": "^3.11.5",
-    "@types/express": "^5.0.5",
-    "@types/mime-types": "^2.1.4",
-    "@types/multer": "^2.0.0",
     "@types/node": "^20.10.0",
-    "tsx": "^4.7.0",
     "typescript": "^5.3.0",
+    "vite": "^5.0.0",
     "vitest": "^1.0.0"
   },
   "engines": {
