@@ -14,7 +14,7 @@ import { detectPlatform, type PlatformScanner, type FileSource } from './platfor
 import { uploadSimple } from './lib/simple-fetch.js';
 import { uploadMultipart } from './lib/multipart-fetch.js';
 import { ValidationError } from './utils/errors.js';
-import { validateBatchSize, validateCustomPrompts } from './lib/validation.js';
+import { validateBatchSize, validateCustomPrompts, validateCustomPromptsLocation } from './lib/validation.js';
 
 const MULTIPART_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 
@@ -29,6 +29,9 @@ export class ArkeUploader {
   private platform: 'node' | 'browser' | 'unknown';
 
   constructor(config: UploaderConfig) {
+    // Validate that customPrompts is not incorrectly placed in processing config
+    validateCustomPromptsLocation(config.processing);
+
     this.config = {
       rootPath: '/',
       parallelUploads: 5,

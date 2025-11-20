@@ -231,4 +231,17 @@ export function validateCustomPrompts(prompts) {
         throw new ValidationError(`Total custom prompts length (${totalLength}) exceeds maximum of ${MAX_TOTAL_LENGTH} characters`, 'customPrompts');
     }
 }
+/**
+ * Validate that customPrompts is not incorrectly placed in processing config
+ */
+export function validateCustomPromptsLocation(processingConfig) {
+    if (!processingConfig)
+        return;
+    // Check if customPrompts was incorrectly placed inside processing config
+    if ('customPrompts' in processingConfig) {
+        throw new ValidationError('customPrompts must be a top-level field in UploaderConfig, not inside the processing config. ' +
+            'Use: new ArkeUploader({ customPrompts: {...}, processing: {...} }) ' +
+            'NOT: new ArkeUploader({ processing: { customPrompts: {...} } })', 'processing');
+    }
+}
 //# sourceMappingURL=validation.js.map

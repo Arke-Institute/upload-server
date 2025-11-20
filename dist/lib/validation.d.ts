@@ -66,4 +66,8 @@ export declare function validateTiffQuality(quality: number): void;
  * Validate custom prompts
  */
 export declare function validateCustomPrompts(prompts?: CustomPrompts): void;
+/**
+ * Validate that customPrompts is not incorrectly placed in processing config
+ */
+export declare function validateCustomPromptsLocation(processingConfig?: any): void;
 //# sourceMappingURL=validation.d.ts.map

@@ -6,7 +6,7 @@ import { detectPlatform } from './platforms/common.js';
 import { uploadSimple } from './lib/simple-fetch.js';
 import { uploadMultipart } from './lib/multipart-fetch.js';
 import { ValidationError } from './utils/errors.js';
-import { validateBatchSize, validateCustomPrompts } from './lib/validation.js';
+import { validateBatchSize, validateCustomPrompts, validateCustomPromptsLocation } from './lib/validation.js';
 const MULTIPART_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 /**
  * Upload client for Arke Institute's ingest service
@@ -18,6 +18,8 @@ export class ArkeUploader {
     scanner = null;
     platform;
     constructor(config) {
+        // Validate that customPrompts is not incorrectly placed in processing config
+        validateCustomPromptsLocation(config.processing);
         this.config = {
             rootPath: '/',
             parallelUploads: 5,
