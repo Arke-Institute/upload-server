@@ -109,6 +109,12 @@ export class ArkeUploader {
     // Validate custom prompts if provided
     if (this.config.customPrompts) {
       validateCustomPrompts(this.config.customPrompts);
+
+      // Log which custom prompts are being used
+      const promptFields = Object.keys(this.config.customPrompts).filter(
+        key => this.config.customPrompts![key as keyof typeof this.config.customPrompts]
+      );
+      console.log(`[Arke Upload SDK] Custom prompts configured: ${promptFields.join(', ')}`);
     }
 
     if (dryRun) {
@@ -130,6 +136,11 @@ export class ArkeUploader {
       total_size: totalSize,
       custom_prompts: this.config.customPrompts,
     });
+
+    // Confirm custom prompts were sent
+    if (this.config.customPrompts) {
+      console.log(`[Arke Upload SDK] Custom prompts sent to worker for batch ${batch_id}`);
+    }
 
     // Phase 3: Upload files
     this.reportProgress(onProgress, {
