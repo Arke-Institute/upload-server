@@ -159,7 +159,7 @@ export class ArkeUploader {
     let bytesUploaded = 0;
 
     // Upload files with concurrency control
-    await this.uploadFilesWithConcurrency(
+    const { failedFiles } = await this.uploadFilesWithConcurrency(
       batch_id,
       files,
       source,
@@ -179,6 +179,21 @@ export class ArkeUploader {
         });
       }
     );
+
+    // Check if all files failed
+    if (failedFiles.length === files.length) {
+      throw new ValidationError(
+        `All ${files.length} files failed to upload. First error: ${failedFiles[0]?.error || 'Unknown'}`
+      );
+    }
+
+    // Log warning if some files failed but continue with finalization
+    if (failedFiles.length > 0) {
+      console.warn(
+        `Warning: ${failedFiles.length} of ${files.length} files failed to upload:`,
+        failedFiles.map(f => `${f.file.fileName}: ${f.error}`).join(', ')
+      );
+    }
 
     // Phase 4: Finalize
     this.reportProgress(onProgress, {
@@ -219,15 +234,24 @@ export class ArkeUploader {
     source: FileSource | FileSource[],
     concurrency: number,
     onFileComplete: (file: FileInfo, bytes: number) => void
-  ): Promise<void> {
+  ): Promise<{ failedFiles: Array<{ file: FileInfo; error: string }> }> {
     const queue = [...files];
     const workers: Promise<void>[] = [];
+    const failedFiles: Array<{ file: FileInfo; error: string }> = [];
 
     const processNext = async () => {
       while (queue.length > 0) {
         const file = queue.shift()!;
-        await this.uploadSingleFile(batchId, file, source);
-        onFileComplete(file, file.size);
+        try {
+          await this.uploadSingleFile(batchId, file, source);
+          onFileComplete(file, file.size);
+        } catch (error: any) {
+          // Log the error but continue with other files
+          const errorMessage = error.message || 'Unknown error';
+          console.error(`Failed to upload ${file.fileName}: ${errorMessage}`);
+          failedFiles.push({ file, error: errorMessage });
+          // Don't re-throw - continue processing other files
+        }
       }
     };
 
@@ -237,6 +261,7 @@ export class ArkeUploader {
     }
 
     await Promise.all(workers);
+    return { failedFiles };
   }
 
   /**

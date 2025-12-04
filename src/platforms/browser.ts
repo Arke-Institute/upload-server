@@ -62,6 +62,18 @@ export class BrowserScanner implements PlatformScanner {
     const fileName = file.name;
     const size = file.size;
 
+    // Skip hidden files (starting with .) - includes .DS_Store, .gitignore, etc.
+    // These often have permission issues or are constantly modified by the OS
+    if (fileName.startsWith('.')) {
+      return null;
+    }
+
+    // Skip common system/temp files that shouldn't be uploaded
+    const skipFiles = ['Thumbs.db', 'desktop.ini', '__MACOSX'];
+    if (skipFiles.includes(fileName)) {
+      return null;
+    }
+
     // Skip processing config files
     if (fileName === '.arke-process.json') {
       return null;
